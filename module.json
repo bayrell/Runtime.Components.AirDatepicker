@@ -1,0 +1,10 @@
+{
+	"name": "Runtime.Components.AirDatepicker",
+	"assets":
+	[
+		"DatePicker",
+		"@datepicker.min.css",
+		"@datepicker.min.js",
+		"@i18n/datepicker.en.js"
+	]
+}

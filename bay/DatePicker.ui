@@ -1,0 +1,230 @@
+<!--
+ *  Bayrell Runtime Library
+ *
+ *  (c) Copyright 2016-2020 "Ildar Bikmamatov" <support@bayrell.org>
+ *
+ *  Licensed under the Apache License, Version 2.0 (the "License");
+ *  you may not use this file except in compliance with the License.
+ *  You may obtain a copy of the License at
+ *
+ *      https://www.apache.org/licenses/LICENSE-2.0
+ *
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
+-->
+
+<class version="1.0"
+	name="Runtime.Components.AirDatepicker.DatePicker" extends="Runtime.Web.Component"
+	module="Runtime.Components.AirDatepicker"
+>
+
+
+<use name="Runtime.DateTime" />
+<use name="Runtime.Core.Message" />
+<use name="Runtime.Web.LayoutModel" />
+<use name="Runtime.Web.RenderDriver" />
+<use name="Runtime.Web.RenderDriverControl" />
+<use name="Runtime.Web.Events.ChangeEvent" />
+
+
+<style>
+.input{
+	width: 100%;
+	padding: 6px 12px;
+	background-color: ${ vars["colors", "default", "background"] };
+	border: 1px ${ vars["colors", "default", "border"] } solid;
+	outline: transparent;
+}
+</style>
+
+
+
+<template name="render">
+	%var string name = (params != null) ? params.get("name", "") : "";
+	%var string type = (params != null) ? params.get("type", "input") : "";
+	%var primitive tag = (params != null) ? params.get("@tag", "") : "";
+	
+	<div class='datepicker_wrap'>
+		<input class='input' @tag={ tag } @event:ChangeEvent="onChange"
+			name={ name } type={ type } />
+	</div>
+	
+</template>
+
+
+
+<script type="frontend">
+
+string old_value = null;
+var childs = null;
+var datepicker = null;
+
+
+/**
+ * Returns options
+ */
+pure Collection<string> getOptions() =>
+[
+	"classes",
+	"inline",
+	"language",
+	"startDate",
+	"firstDay",
+	"weekends",
+	"dateFormat",
+	"altField",
+	"altFieldDateFormat",
+	"toggleSelected",
+	"keyboardNav",
+	"position",
+	"offset",
+	"view",
+	"minView",
+	"showOtherMonths",
+	"selectOtherMonths",
+	"moveToOtherMonthsOnSelect",
+	"showOtherYears",
+	"selectOtherYears",
+	"moveToOtherYearsOnSelect",
+	"minDate",
+	"maxDate",
+	"disableNavWhenOutOfRange",
+	"multipleDates",
+	"multipleDatesSeparator",
+	"range",
+	"todayButton",
+	"clearButton",
+	"showEvent",
+	"autoClose",
+	"prevHtml",
+	"nextHtml",
+	"navTitles",
+	"monthsField",
+	"timepicker",
+	"dateTimeSeparator",
+	"timeFormat",
+	"minHours",
+	"maxHours",
+	"minMinutes",
+	"maxMinutes",
+	"hoursStep",
+	"minutesStep",
+];
+
+
+
+/**
+ * Returns value
+ */
+pure var getValue(LayoutModel layout, var model, Dict params)
+{
+	string value = (params != null) ? params.get("value", null) : null;
+	string def_value = (params != null) ? params.get("default", null) : null;
+	value = rtl::isEmpty(value) ? model : value;
+	if (rtl::isEmpty(value)){ value = def_value; }
+	return value;
+}
+
+
+
+/**
+ * On change
+ */
+public void onChange(Message<ChangeEvent> msg)
+{
+	string value = msg.data.value;
+	DateTime new_value = new DateTime
+	{
+		"y": rs::substr(value, 0, 4),
+		"m": rs::substr(value, 5, 2),
+		"d": rs::substr(value, 8, 2),
+		"tz": this.controller.layout.tz,
+	}
+	msg.data = msg.data.copy{ "value": new_value };
+	this.signal(msg.data);
+}
+
+
+
+/**
+ * Returns true if repaint overrided
+ */
+public bool isRepaintOverridden()
+{
+	return true;
+}
+
+
+
+/**
+ * Repaint component
+ */
+public Collection<var> repaint
+(
+	LayoutModel layout, var model, Dict params, html content,
+	RenderDriverControl control, bool created
+)
+{
+	if (created)
+	{
+		var res = static::render(layout, model, params, content); res = @res(control);
+		this.childs = res;
+	}
+	return this.childs;
+}
+
+
+
+/**
+ * Update component
+ */
+public void updateComponent(RenderDriverControl control, bool created)
+{
+	parent::updateComponent(control, created);
+	
+	DateTime value = static::getValue(this.controller.layout, this.model(), this.params);
+	var text = ""; if (value != null) { text = value.getDate( this.controller.layout.tz ); }
+	
+	/* Create datepicker */
+	#ifcode JAVASCRIPT then
+	
+	var input = control.parent_elem.querySelector("input");
+	if (input && input.value != text) input.value = text;
+	
+	if (this.datepicker == null && input)
+	{
+		var options = this.params.intersect(ctx, this.constructor.getOptions()).toObject();
+		options["dateFormat"] = "yyyy-mm-dd";
+		options["autoClose"] = options["autoClose"] || true;
+		options["position"] = options["position"] || "top left";
+		options["onSelect"] = (value) =>
+		{
+			if (this.old_value == value) return;
+			var ctx = globalContext;
+			var data = new Runtime.Web.Events.ChangeEvent(ctx, { "value": value });
+			var msg = new Runtime.Core.Message(ctx, data);
+			this.onChange(ctx, msg);
+		};
+		
+		this.datepicker = $(input).datepicker(options);
+	}
+	
+	if (value != null && this.datepicker && this.old_value != text)
+	{
+		var datepicker = this.datepicker.data('datepicker');
+		datepicker.selectDate( value.getObjectData(ctx) );
+	}
+	#endif
+	
+	this.old_value = text;
+}
+
+
+
+</script>
+
+
+</class>
