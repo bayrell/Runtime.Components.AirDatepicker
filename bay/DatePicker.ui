@@ -22,6 +22,7 @@
 >
 
 
+<use name="Runtime.Date" />
 <use name="Runtime.DateTime" />
 <use name="Runtime.Core.Message" />
 <use name="Runtime.Web.LayoutModel" />
@@ -58,7 +59,7 @@
 
 <script type="frontend">
 
-string old_value = null;
+var old_value = null;
 var childs = null;
 var datepicker = null;
 
@@ -121,8 +122,8 @@ pure Collection<string> getOptions() =>
  */
 pure var getValue(LayoutModel layout, var model, Dict params)
 {
-	string value = (params != null) ? params.get("value", null) : null;
-	string def_value = (params != null) ? params.get("default", null) : null;
+	var value = (params != null) ? params.get("value", null) : null;
+	var def_value = (params != null) ? params.get("default", null) : null;
 	value = rtl::isEmpty(value) ? model : value;
 	if (rtl::isEmpty(value)){ value = def_value; }
 	return value;
@@ -135,16 +136,42 @@ pure var getValue(LayoutModel layout, var model, Dict params)
  */
 public void onChange(Message<ChangeEvent> msg)
 {
-	string value = msg.data.value;
-	DateTime new_value = new DateTime
+	bool isRange = this.params["range"] == true;
+	if (isRange)
 	{
-		"y": rs::substr(value, 0, 4),
-		"m": rs::substr(value, 5, 2),
-		"d": rs::substr(value, 8, 2),
-		"tz": this.controller.layout.tz,
+		string value = msg.data.value;
+		DateTime plan_begin = new DateTime
+		{
+			"y": rs::substr(value, 0, 4),
+			"m": rs::substr(value, 5, 2),
+			"d": rs::substr(value, 8, 2),
+			"tz": this.controller.layout.tz,
+		};
+		
+		DateTime plan_end = new DateTime
+		{
+			"y": rs::substr(value, 13, 4),
+			"m": rs::substr(value, 18, 2),
+			"d": rs::substr(value, 21, 2),
+			"tz": this.controller.layout.tz,
+		};
+		
+		msg.data = msg.data.copy{ "value": [plan_begin, plan_end] };
+		this.signal(msg.data);
 	}
-	msg.data = msg.data.copy{ "value": new_value };
-	this.signal(msg.data);
+	else
+	{
+		string value = msg.data.value;
+		DateTime new_value = new DateTime
+		{
+			"y": rs::substr(value, 0, 4),
+			"m": rs::substr(value, 5, 2),
+			"d": rs::substr(value, 8, 2),
+			"tz": this.controller.layout.tz,
+		}
+		msg.data = msg.data.copy{ "value": new_value };
+		this.signal(msg.data);
+	}
 }
 
 
@@ -179,14 +206,49 @@ public Collection<var> repaint
 
 
 /**
+ * Returns text from model
+ */
+public string getInputTextFromValue(var value, bool isRange)
+{
+	string text = "";
+	bool isRange = this.params["range"] == true;
+	if (value instanceof Collection)
+	{
+		if (isRange)
+		{
+			if (not rtl::isEmpty(value[0]) and (value[0] instanceof Date or value[0] instanceof DateTime))
+			{
+				text = value[0].getDate( this.controller.layout.tz );
+				if (not rtl::isEmpty(value[1]) and (value[1] instanceof Date or value[1] instanceof DateTime))
+				{
+					text ~= " - " ~ value[1].getDate( this.controller.layout.tz );
+				}
+			}
+		}
+	}
+	else if (value instanceof DateTime)
+	{
+		text = value.getDate( this.controller.layout.tz );
+	}
+	return text;
+}
+
+
+
+/**
  * Update component
  */
 public void updateComponent(RenderDriverControl control, bool created)
 {
 	parent::updateComponent(control, created);
 	
-	DateTime value = static::getValue(this.controller.layout, this.model(), this.params);
-	var text = ""; if (value != null) { text = value.getDate( this.controller.layout.tz ); }
+	/* Returns value */
+	var value = static::getValue(this.controller.layout, this.model(), this.params);
+	string text = this.getInputTextFromValue(value);
+	bool isRange = this.params["range"] == true;
+	
+	bool isChanged = this.old_value != value;
+	this.old_value = value;
 	
 	/* Create datepicker */
 	#ifcode JAVASCRIPT then
@@ -200,26 +262,92 @@ public void updateComponent(RenderDriverControl control, bool created)
 		options["dateFormat"] = "yyyy-mm-dd";
 		options["autoClose"] = options["autoClose"] || true;
 		options["position"] = options["position"] || "top left";
-		options["onSelect"] = (value) =>
+		options["onSelect"] = (value, date, inst) =>
 		{
-			if (this.old_value == value) return;
 			var ctx = globalContext;
-			var data = new Runtime.Web.Events.ChangeEvent(ctx, { "value": value });
-			var msg = new Runtime.Core.Message(ctx, data);
-			this.onChange(ctx, msg);
+			var is_changed = false;
+			var new_value = null;
+			
+			if (isRange && date instanceof Array && date.length == 2)
+			{
+				var date_begin = date[0];
+				var date_end = date[1];
+				var date_begin_old = (this.old_value[0] != null) ? this.old_value[0].toObject(ctx) : null;
+				var date_end_old = (this.old_value[1] != null) ? this.old_value[1].toObject(ctx) : null;
+				var date_begin_t = (date_begin != null) ? date_begin.getTime() : null;
+				var date_end_t = (date_end != null) ? date_end.getTime() : null;
+				var date_begin_old_t = (date_begin_old != null) ? date_begin_old.getTime() : null;
+				var date_end_old_t = (date_end_old != null) ? date_end_old.getTime() : null;
+				if (date_begin_t != date_begin_old_t || date_end_t != date_end_old_t)
+				{
+					var date_begin_obj = Runtime.Date.fromObject(ctx, date_begin, this.controller.layout.tz);
+					var date_end_obj = Runtime.Date.fromObject(ctx, date_end, this.controller.layout.tz);
+					new_value = Runtime.Collection.from([date_begin_obj, date_end_obj]);
+					is_changed = true;
+				}
+			}
+			
+			else if (!isRange)
+			{
+				var date_old = (this.old_value != null) ? this.old_value.toObject(ctx) : null;
+				var date_t = (date != null) ? date.getTime() : null;
+				var date_old_t = (date != null) ? date_old.getTime() : null;
+				if (date_t != date_old_t)
+				{
+					new_value = Runtime.Date.fromObject(ctx, date, this.controller.layout.tz);
+					is_changed = true;
+				}
+			}
+			
+			else if (value == "" && this.old_value != null)
+			{
+				new_value = null;
+				is_changed = true;
+			}
+			
+			if (is_changed)
+			{
+				var data = new Runtime.Web.Events.ChangeEvent
+				(
+					ctx,
+					{ "value": new_value, "old_value": this.old_value }
+				);
+				this.signal(ctx, data);
+			}
 		};
 		
 		this.datepicker = $(input).datepicker(options);
 	}
 	
-	if (value != null && this.datepicker && this.old_value != text)
+	if (value != null && this.datepicker && isChanged)
 	{
 		var datepicker = this.datepicker.data('datepicker');
-		datepicker.selectDate( value.getObjectData(ctx) );
+		var datepicker_value = null;
+		
+		if (value instanceof Runtime.Collection)
+		{
+			datepicker_value = value
+				.map
+				(
+					ctx, (ctx, item) => (item != null &&
+						(item instanceof Runtime.Date || item instanceof Runtime.DateTime))
+						? item.toObject(ctx) : null,
+				)
+				.filter( ctx, Runtime.lib.equalNot(ctx, null) )
+				.toArray()
+			;
+		}
+		else
+		{
+			datepicker_value = (value != null &&
+				(value instanceof Runtime.Date || value instanceof Runtime.DateTime))
+				? value.toObject(ctx) : null;
+		}
+		
+		datepicker.selectDate( datepicker_value );
 	}
-	#endif
 	
-	this.old_value = text;
+	#endif
 }
 
 
